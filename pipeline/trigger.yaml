@@ -1,0 +1,82 @@
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: EventListener
+metadata:
+  name: quarkus-hello-build-el
+spec:
+  namespaceSelector: {}
+  resources: {}
+  serviceAccountName: pipeline
+  triggers:
+    - bindings:
+        - kind: ClusterTriggerBinding
+          ref: github-push
+      template:
+        ref: quarkus-hello-build-trigger-template
+
+---
+
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: quarkus-hello-pipeline-el
+spec:
+  to:
+    kind: Service
+    name: el-quarkus-hello-build-el
+    weight: 100
+  port:
+    targetPort: http-listener
+  tls:
+    termination: edge
+  wildcardPolicy: None
+
+---
+
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerTemplate
+metadata:
+  name: quarkus-hello-build-trigger-template
+spec:
+  params:
+    - name: git-revision
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        annotations:
+          pipeline.openshift.io/started-by: admin
+        generateName: quarkus-hello-deploy-and-build-dev-
+        namespace: devops-practice
+      spec:
+        params:
+          - name: APP_GIT_URL
+            value: 'https://github.com/troy-adianto/quarkus-hello.git'
+          - name: APP_GIT_REVISION
+            value: master
+          - name: APP_GIT_COMMIT_ID
+            value: $(tt.params.git-revision)
+          - name: APP_NAME
+            value: quarkus-hello
+          - name: INFRA_REPO
+            value: 'https://github.com/troy-adianto/quarkus-hello-infra.git'
+          - name: INFRA_REVISION
+            value: main
+          - name: IMAGE_NAME
+            value: >-
+              image-registry.openshift-image-registry.svc:5000/devops-practice/quarkus-hello
+        pipelineRef:
+          name: deploy-and-build-dev
+        taskRunTemplate:
+          serviceAccountName: pipeline
+        timeouts:
+          pipeline: 1h0m0s
+        workspaces:
+          - name: source
+            persistentVolumeClaim:
+              claimName: quarkus-hello-source-pvc
+          - name: infra
+            persistentVolumeClaim:
+              claimName: quarkus-hello-infra-pvc
+          - name: git-credentials
+            secret:
+              secretName: quarkus-hello-git-credentials
