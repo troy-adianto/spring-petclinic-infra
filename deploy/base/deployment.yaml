@@ -17,7 +17,7 @@ spec:
       containers:
         - name: quarkus-hello
           image: >-
-            image-registry.openshift-image-registry.svc:5000/devops-practice/quarkus-hello
+            image-registry.openshift-image-registry.svc:5000/devops-practice/quarkus-hello:latest
           ports:
             - containerPort: 8080
               protocol: TCP
