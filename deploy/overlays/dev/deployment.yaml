@@ -8,4 +8,4 @@ spec:
       containers:
         - name: quarkus-hello
           image: >-
-            image-registry.openshift-image-registry.svc:5000/devops-practice/quarkus-hello:test
+            image-registry.openshift-image-registry.svc:5000/devops-practice/quarkus-hello:c1
