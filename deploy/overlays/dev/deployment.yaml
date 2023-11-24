@@ -7,4 +7,4 @@ spec:
     spec:
       containers:
         - name: quarkus-hello
-          image: image-registry.openshift-image-registry.svc:5000/devops-practice/quarkus-hello:sdfaewt52detesr23ewqeqw
+          image:busfgaw324ye3kj24
