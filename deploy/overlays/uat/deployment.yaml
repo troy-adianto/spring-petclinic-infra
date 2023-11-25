@@ -7,4 +7,4 @@ spec:
     spec:
       containers:
         - name: quarkus-hello
-          image: quay.io/tadianto/quarkus-hello:V1.0-RC
+          image: quay.io/tadianto/quarkus-hello:v1.1-beta
