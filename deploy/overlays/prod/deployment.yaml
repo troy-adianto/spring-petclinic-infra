@@ -1,0 +1,10 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quarkus-hello
+spec:
+  template:
+    spec:
+      containers:
+        - name: quarkus-hello
+          image: quay.io/tadianto/quarkus-hello:V1.0-RC
