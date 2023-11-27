@@ -6,4 +6,5 @@ spec:
   template:
     spec:
       containers:
-        - image: quay.io/tadianto/quarkus-hello:test1235fw4sf5
+        - name: quarkus-hello
+          image: quay.io/tadianto/quarkus-hello:test1235fw4sf5
