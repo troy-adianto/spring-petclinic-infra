@@ -1,16 +1,9 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: deploy-and-build-dev
+  name: promote-to-uat
 spec:
   params:
-    - default: 'https://github.com/troy-adianto/quarkus-hello.git'
-      description: String
-      name: APP_GIT_URL
-      type: string
-    - default: master
-      name: APP_GIT_REVISION
-      type: string
     - default: quarkus-hello
       name: APP_NAME
       type: string
@@ -25,81 +18,9 @@ spec:
       type: string
     - name: APP_GIT_COMMIT_ID
       type: string
+    - name: APP_GIT_TAG_NAME
+      type: string
   tasks:
-    - name: git-clone
-      params:
-        - name: url
-          value: $(params.APP_GIT_URL)
-        - name: revision
-          value: $(params.APP_GIT_REVISION)
-        - name: refspec
-          value: ''
-        - name: submodules
-          value: 'true'
-        - name: depth
-          value: '1'
-        - name: sslVerify
-          value: 'true'
-        - name: crtFileName
-          value: ca-bundle.crt
-        - name: subdirectory
-          value: ''
-        - name: sparseCheckoutDirectories
-          value: ''
-        - name: deleteExisting
-          value: 'true'
-        - name: httpProxy
-          value: ''
-        - name: httpsProxy
-          value: ''
-        - name: noProxy
-          value: ''
-        - name: verbose
-          value: 'true'
-        - name: gitInitImage
-          value: >-
-            gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.40.2
-        - name: userHome
-          value: /home/git
-      taskRef:
-        kind: ClusterTask
-        name: git-clone
-      workspaces:
-        - name: output
-          workspace: source
-        - name: basic-auth
-          workspace: git-credentials
-    - name: s2i-java
-      params:
-        - name: VERSION
-          value: latest
-        - name: PATH_CONTEXT
-          value: .
-        - name: TLSVERIFY
-          value: 'true'
-        - name: MAVEN_ARGS_APPEND
-          value: ''
-        - name: MAVEN_CLEAR_REPO
-          value: 'false'
-        - name: MAVEN_MIRROR_URL
-          value: ''
-        - name: IMAGE
-          value: '$(params.IMAGE_NAME):$(tasks.shorten-image-tag-name.results.output)'
-        - name: BUILDER_IMAGE
-          value: >-
-            registry.redhat.io/rhel8/buildah@sha256:55f5c7d88c77e1ab5a2ab8e877172b2b66cb196e21f10dc45148470d0ee8bbae
-        - name: SKIP_PUSH
-          value: 'false'
-        - name: ENV_VARS
-          value: []
-      runAfter:
-        - shorten-image-tag-name
-      taskRef:
-        kind: ClusterTask
-        name: s2i-java
-      workspaces:
-        - name: source
-          workspace: source
     - name: fetch-infra-manifest
       params:
         - name: url
@@ -136,7 +57,7 @@ spec:
         - name: userHome
           value: /home/git
       runAfter:
-        - rhacs-image-check
+        - retag-image
       taskRef:
         kind: ClusterTask
         name: git-clone
@@ -178,8 +99,8 @@ spec:
       params:
         - name: SCRIPT
           value: >-
-            oc apply -k $(workspaces.manifest-dir.path)/deploy/overlays/dev/ -n
-            devops-practice
+            oc apply -k $(workspaces.manifest-dir.path)/deploy/overlays/uat/ -n
+            quarkus-hello-uat
         - name: VERSION
           value: latest
       runAfter:
@@ -195,8 +116,8 @@ spec:
         - name: SCRIPT
           value: >-
             sed -i
-            's/quarkus-hello:.*/quarkus-hello:$(params.APP_GIT_COMMIT_ID)/g'
-            $(workspaces.manifest-dir.path)/deploy/overlays/dev/deployment.yaml
+            's/quarkus-hello:.*/quarkus-hello:$(params.APP_GIT_TAG_NAME)/g'
+            $(workspaces.manifest-dir.path)/deploy/overlays/uat/deployment.yaml
         - name: VERSION
           value: latest
       runAfter:
@@ -213,30 +134,9 @@ spec:
           value: >-
             printf "$(params.APP_GIT_COMMIT_ID)"  | sed 's/.*\(.\{5\}\)$/\1/' >
             "$(results.output.path)"
-      runAfter:
-        - git-clone
       taskRef:
         kind: ClusterTask
         name: bash-script
-    - name: rhacs-image-check
-      params:
-        - name: rox_central_endpoint
-          value: acs-pipeline-secret
-        - name: rox_api_token
-          value: acs-pipeline-secret
-        - name: rox_image
-          value: 'quay.io/stackrox-io/roxctl:3.71.0'
-        - name: image
-          value: '$(params.IMAGE_NAME):$(tasks.shorten-image-tag-name.results.output)'
-        - name: output_format
-          value: table
-        - name: insecure-skip-tls-verify
-          value: 'true'
-      runAfter:
-        - s2i-java
-      taskRef:
-        kind: Task
-        name: rhacs-image-check
     - name: rhacs-deployment-check
       params:
         - name: rox_central_endpoint
@@ -246,7 +146,7 @@ spec:
         - name: rox_image
           value: 'quay.io/stackrox-io/roxctl:3.71.0'
         - name: deployment
-          value: $(workspaces.source.path)/deploy/deployment.yaml
+          value: $(workspaces.source.path)/deploy/deployment-uat.yaml
         - name: output_format
           value: table
         - name: insecure-skip-tls-verify
@@ -263,12 +163,12 @@ spec:
       params:
         - name: SCRIPT
           value: >-
-            oc apply -k $(workspaces.manifest-dir.path)/deploy/overlays/dev/
+            oc apply -k $(workspaces.manifest-dir.path)/deploy/overlays/uat/
             --dry-run=client -o yaml >
-            $(workspaces.manifest-dir.path)/deploy/deployment.yaml
+            $(workspaces.manifest-dir.path)/deploy/deployment-uat.yaml
 
 
-            cat $(workspaces.manifest-dir.path)/deploy/deployment.yaml
+            cat $(workspaces.manifest-dir.path)/deploy/deployment-uat.yaml
         - name: VERSION
           value: latest
       runAfter:
@@ -279,11 +179,33 @@ spec:
       workspaces:
         - name: manifest-dir
           workspace: infra
+    - name: retag-image
+      params:
+        - name: SCRIPT
+          value: >+
+            buildah pull
+            $(params.IMAGE_NAME):$(tasks.shorten-image-tag-name.results.output)
+
+            echo "pull image sucessfull"
+
+            buildah tag
+            $(params.IMAGE_NAME):$(tasks.shorten-image-tag-name.results.output)
+            $(params.IMAGE_NAME):$(params.APP_GIT_TAG_NAME)
+
+            echo "Retag Image Successfull"
+
+            buildah push $(params.IMAGE_NAME):$(params.APP_GIT_TAG_NAME)
+
+
+            printf " $(params.IMAGE_NAME):$(params.APP_GIT_TAG_NAME)"  >
+            "$(results.output.path)"
+
+      runAfter:
+        - shorten-image-tag-name
+      taskRef:
+        kind: ClusterTask
+        name: bash-script
   workspaces:
     - name: source
-      optional: false
     - name: infra
-      optional: false
     - name: git-credentials
-      optional: false
-  finally: []

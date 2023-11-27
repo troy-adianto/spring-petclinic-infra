@@ -1,0 +1,103 @@
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: EventListener
+metadata:
+  name: quarkus-hello-deploy-uat-el
+spec:
+  namespaceSelector: {}
+  resources: {}
+  serviceAccountName: pipeline
+  triggers:
+    - bindings:
+        - kind: ClusterTriggerBinding
+          ref: github-tag
+      interceptors:
+        - params:
+            - name: secretRef
+              value: null
+            - name: eventTypes
+              value:
+                - push
+          ref:
+            kind: ClusterInterceptor
+            name: github
+        - params:
+            - name: filter
+              value: body.ref.startsWith('refs/tags')
+            - name: overlays
+              value:
+                - expression: 'body.ref.split(''/'')[2]'
+                  key: tag_name
+          ref:
+            kind: ClusterInterceptor
+            name: cel
+      template:
+        ref: quarkus-hello-deploy-uat-trigger-template
+
+---
+ 
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: quarkus-hello-deploy-uat-el
+  labels:
+    app.kubernetes.io/managed-by: EventListener
+    app.kubernetes.io/part-of: Triggers
+    eventlistener: quarkus-hello-deploy-uat-el
+spec:
+  to:
+    kind: Service
+    name: el-quarkus-hello-deploy-uat-el
+    weight: 100
+  port:
+    targetPort: http-listener
+  tls:
+    termination: edge
+  wildcardPolicy: None
+
+---
+
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: TriggerTemplate
+metadata:
+  name: quarkus-hello-deploy-uat-trigger-template
+spec:
+  params:
+    - name: git-revision
+    - name: git-tag-name
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        annotations:
+          pipeline.openshift.io/started-by: admin
+        generateName: quarkus-hello-promote-to-uat-
+      spec:
+        params:
+          - name: APP_GIT_COMMIT_ID
+            value: $(tt.params.git-revision)
+          - name: APP_GIT_TAG_NAME
+            value: $(tt.params.git-tag-name)
+          - name: APP_NAME
+            value: quarkus-hello
+          - name: INFRA_REPO
+            value: 'https://github.com/troy-adianto/quarkus-hello-infra.git'
+          - name: INFRA_REVISION
+            value: main
+          - name: IMAGE_NAME
+            value: quay.io/tadianto/quarkus-hello
+        pipelineRef:
+          name: promote-to-uat
+        taskRunTemplate:
+          serviceAccountName: pipeline
+        timeouts:
+          pipeline: 1h0m0s
+        workspaces:
+          - name: source
+            persistentVolumeClaim:
+              claimName: quarkus-hello-source-pvc
+          - name: infra
+            persistentVolumeClaim:
+              claimName: quarkus-hello-infra-pvc
+          - name: git-credentials
+            secret:
+              secretName: git-credential-secret

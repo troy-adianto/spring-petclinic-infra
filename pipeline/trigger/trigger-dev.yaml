@@ -10,15 +10,38 @@ spec:
     - bindings:
         - kind: ClusterTriggerBinding
           ref: github-push
+      interceptors:
+        - params:
+            - name: secretRef
+              value: null
+            - name: eventTypes
+              value:
+                - push
+          ref:
+            kind: ClusterInterceptor
+            name: github
+        - params:
+            - name: filter
+              value: '!body.ref.startsWith(''refs/tags'')'
+            - name: overlays
+              value: null
+          ref:
+            kind: ClusterInterceptor
+            name: cel
       template:
         ref: quarkus-hello-build-trigger-template
+
 
 ---
 
 kind: Route
 apiVersion: route.openshift.io/v1
 metadata:
-  name: quarkus-hello-pipeline-el
+  name: quarkus-hello-build-el
+  labels:
+    app.kubernetes.io/managed-by: EventListener
+    app.kubernetes.io/part-of: Triggers
+    eventlistener: quarkus-hello-build-el
 spec:
   to:
     kind: Service
@@ -46,7 +69,6 @@ spec:
         annotations:
           pipeline.openshift.io/started-by: admin
         generateName: quarkus-hello-deploy-and-build-dev-
-        namespace: devops-practice
       spec:
         params:
           - name: APP_GIT_URL
@@ -63,7 +85,7 @@ spec:
             value: main
           - name: IMAGE_NAME
             value: >-
-              image-registry.openshift-image-registry.svc:5000/devops-practice/quarkus-hello
+              quay.io/tadianto/quarkus-hello
         pipelineRef:
           name: deploy-and-build-dev
         taskRunTemplate:
@@ -79,4 +101,4 @@ spec:
               claimName: quarkus-hello-infra-pvc
           - name: git-credentials
             secret:
-              secretName: quarkus-hello-git-credentials
+              secretName: git-credential-secret

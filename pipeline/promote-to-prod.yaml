@@ -1,0 +1,211 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: promote-to-prod
+spec:
+  params:
+    - default: quarkus-hello
+      name: APP_NAME
+      type: string
+    - default: 'https://github.com/troy-adianto/quarkus-hello-infra.git'
+      name: INFRA_REPO
+      type: string
+    - default: main
+      name: INFRA_REVISION
+      type: string
+    - default: quay.io/tadianto/quarkus-hello
+      name: IMAGE_NAME
+      type: string
+    - name: APP_GIT_COMMIT_ID
+      type: string
+    - name: APP_GIT_TAG_NAME
+      type: string
+    - name: APP_GIT_RELEASE_NAME
+      type: string
+  tasks:
+    - name: fetch-infra-manifest
+      params:
+        - name: url
+          value: $(params.INFRA_REPO)
+        - name: revision
+          value: $(params.INFRA_REVISION)
+        - name: refspec
+          value: ''
+        - name: submodules
+          value: 'true'
+        - name: depth
+          value: '1'
+        - name: sslVerify
+          value: 'true'
+        - name: crtFileName
+          value: ca-bundle.crt
+        - name: subdirectory
+          value: ''
+        - name: sparseCheckoutDirectories
+          value: ''
+        - name: deleteExisting
+          value: 'true'
+        - name: httpProxy
+          value: ''
+        - name: httpsProxy
+          value: ''
+        - name: noProxy
+          value: ''
+        - name: verbose
+          value: 'true'
+        - name: gitInitImage
+          value: >-
+            registry.redhat.io/openshift-pipelines/pipelines-git-init-rhel8@sha256:c4b2183f7c7997bd401d86b33eefb637b3ef2fa90618e875106292cd69a15c14
+        - name: userHome
+          value: /home/git
+      runAfter:
+        - retag-image
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: infra
+        - name: basic-auth
+          workspace: git-credentials
+    - name: push-manifest
+      params:
+        - name: BASE_IMAGE
+          value: >-
+            cgr.dev/chainguard/git:root-2.39@sha256:7759f87050dd8bacabe61354d75ccd7f864d6b6f8ec42697db7159eccd491139
+        - name: GIT_USER_NAME
+          value: troy-adianto
+        - name: GIT_USER_EMAIL
+          value: troy.adianto@gmail.com
+        - name: GIT_SCRIPT
+          value: |
+            git config --global --add safe.directory $(workspaces.source.path)
+            git checkout $(params.INFRA_REVISION)
+            git commit -a -m "new build"
+            git push
+        - name: USER_HOME
+          value: /root
+        - name: VERBOSE
+          value: 'true'
+      runAfter:
+        - rhacs-deployment-check
+      taskRef:
+        kind: ClusterTask
+        name: git-cli
+      workspaces:
+        - name: source
+          workspace: infra
+        - name: basic-auth
+          workspace: git-credentials
+    - name: deploy-manifest
+      params:
+        - name: SCRIPT
+          value: >-
+            oc apply -k $(workspaces.manifest-dir.path)/deploy/overlays/prod/ -n
+            quarkus-hello-prod
+        - name: VERSION
+          value: latest
+      runAfter:
+        - push-manifest
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+      workspaces:
+        - name: manifest-dir
+          workspace: infra
+    - name: update-manifest
+      params:
+        - name: SCRIPT
+          value: >-
+            sed -i
+            's/quarkus-hello:.*/quarkus-hello:$(params.APP_GIT_RELEASE_NAME)/g'
+            $(workspaces.manifest-dir.path)/deploy/overlays/prod/deployment.yaml
+        - name: VERSION
+          value: latest
+      runAfter:
+        - fetch-infra-manifest
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+      workspaces:
+        - name: manifest-dir
+          workspace: infra
+    - name: shorten-image-tag-name
+      params:
+        - name: SCRIPT
+          value: >-
+            printf "$(params.APP_GIT_COMMIT_ID)"  | sed 's/.*\(.\{5\}\)$/\1/' >
+            "$(results.output.path)"
+      taskRef:
+        kind: ClusterTask
+        name: bash-script
+    - name: rhacs-deployment-check
+      params:
+        - name: rox_central_endpoint
+          value: acs-pipeline-secret
+        - name: rox_api_token
+          value: acs-pipeline-secret
+        - name: rox_image
+          value: 'quay.io/stackrox-io/roxctl:3.71.0'
+        - name: deployment
+          value: $(workspaces.source.path)/deploy/deployment-prod.yaml
+        - name: output_format
+          value: table
+        - name: insecure-skip-tls-verify
+          value: 'true'
+      runAfter:
+        - generate-deployment-file
+      taskRef:
+        kind: Task
+        name: rhacs-deployment-check
+      workspaces:
+        - name: source
+          workspace: infra
+    - name: generate-deployment-file
+      params:
+        - name: SCRIPT
+          value: >-
+            oc apply -k $(workspaces.manifest-dir.path)/deploy/overlays/prod/
+            --dry-run=client -o yaml >
+            $(workspaces.manifest-dir.path)/deploy/deployment-prod.yaml
+
+
+            cat $(workspaces.manifest-dir.path)/deploy/deployment-prod.yaml
+        - name: VERSION
+          value: latest
+      runAfter:
+        - update-manifest
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+      workspaces:
+        - name: manifest-dir
+          workspace: infra
+    - name: retag-image
+      params:
+        - name: SCRIPT
+          value: >+
+            buildah pull $(params.IMAGE_NAME):$(params.APP_GIT_TAG_NAME)
+
+            echo "pull image sucessfull"
+
+            buildah tag $(params.IMAGE_NAME):$(params.APP_GIT_TAG_NAME)
+            $(params.IMAGE_NAME):$(params.APP_GIT_RELEASE_NAME)
+
+            echo "Retag Image Successfull"
+
+            buildah push $(params.IMAGE_NAME):$(params.APP_GIT_RELEASE_NAME)
+
+
+            printf " $(params.IMAGE_NAME):$(params.APP_GIT_RELEASE_NAME)"  >
+            "$(results.output.path)"
+
+      runAfter:
+        - shorten-image-tag-name
+      taskRef:
+        kind: ClusterTask
+        name: bash-script
+  workspaces:
+    - name: source
+    - name: infra
+    - name: git-credentials

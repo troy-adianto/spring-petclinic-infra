@@ -1,0 +1,16 @@
+apiVersion: triggers.tekton.dev/v1alpha1
+kind: ClusterTriggerBinding
+metadata:
+  name: github-released
+spec:
+  params:
+    - name: git-revision
+      value: $(body.release.target_commitish)
+    - name: git-release-name
+      value: $(body.release.name)
+    - name: git-tag-name
+      value: $(body.release.tag_name)
+    - name: git-repo-url
+      value: $(body.repository.url)
+    - name: git-repo-name
+      value: $(body.repository.name)

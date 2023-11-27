@@ -1,0 +1,296 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: bash-script
+spec:
+  description: This task runs bash script command with single result
+  params:
+    - default: printf "hello" > "$(results.output.path)"
+      description: The bash script to run
+      name: SCRIPT
+      type: string
+  results:
+    - description: output of executed script
+      name: output
+      type: string
+  steps:
+    - env:
+        - name: HOME
+          value: /tekton/home
+      image: 'image-registry.openshift-image-registry.svc:5000/openshift/cli:latest'
+      name: bash
+      resources: {}
+      script: |
+        #!/usr/bin/env bash
+        $(params.SCRIPT)
+      securityContext:
+        capabilities:
+          add:
+            - SETFCAP
+
+---
+
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhacs-deployment-check
+  labels:
+    app.kubernetes.io/version: '3.71'
+spec:
+  description: >-
+    Policy check a deployment with Red Hat Advanced Cluster Security.
+
+    This tasks allows you to check a Kubernetes deployment manifest against
+    policies and apply enforcement to fail pipelines.
+  params:
+    - default: rox-central-endpoint
+      description: >-
+        Name of secret containing the address:port tuple for RHACS Stackrox
+        Central.
+      name: rox_central_endpoint
+      type: string
+    - default: rox-api-token
+      description: >-
+        Name of secret containing the RHACS StackRox API token with CI
+        permissions.
+      name: rox_api_token
+      type: string
+    - default: 'quay.io/stackrox-io/roxctl:3.71.0'
+      description: Image providing the roxctl tool.
+      name: rox_image
+      type: string
+    - default: $(workspaces.source.path)/deployment.yaml
+      description: >
+        Deployment filename to check.
+
+        Examples: 'deployment.yaml',
+        '$(workspaces.source.path)/base/deployment.yaml'
+      name: deployment
+      type: string
+    - default: table
+      description: Results output format (csv | json | junit | table)
+      name: output_format
+      type: string
+    - default: 'false'
+      description: >
+        Do not verify TLS certificates.
+
+
+        When set to "true", skip verifying the TLS certs of the Central endpoint
+        and registry.
+      name: insecure-skip-tls-verify
+      type: string
+  results:
+    - description: Output of `roxctl deployment check`
+      name: check_output
+      type: string
+  steps:
+    - args:
+        - deployment
+        - check
+        - '--endpoint=$(ROX_CENTRAL_ENDPOINT)'
+        - '--insecure-skip-tls-verify=$(INSECURE)'
+        - '--output=$(OUTPUT)'
+        - '--file=$(DEPLOYMENT)'
+      computeResources: {}
+      env:
+        - name: DEPLOYMENT
+          value: $(params.deployment)
+        - name: HOME
+          value: /tekton/home
+        - name: INSECURE
+          value: $(params.insecure-skip-tls-verify)
+        - name: OUTPUT
+          value: $(params.output_format)
+        - name: ROX_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: rox_api_token
+              name: $(params.rox_api_token)
+        - name: ROX_CENTRAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              key: rox_central_endpoint
+              name: $(params.rox_central_endpoint)
+      image: $(params.rox_image)
+      name: rox-deploy-check
+      workingDir: $(workspaces.source.path)
+  workspaces:
+    - name: source
+
+---
+
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhacs-image-check
+  labels:
+    app.kubernetes.io/version: '3.71'
+spec:
+  description: >-
+    Policy check an image with Red Hat Advanced Cluster Security.
+
+    This tasks allows you to check an image against build-time policies and
+    apply enforcement to fail builds.  It's a companion to the rhacs-image-scan
+    task, which returns full vulnerability scan results for an image.
+  params:
+    - default: rox-central-endpoint
+      description: >-
+        Name of secret containing the address:port tuple for RHACS Stackrox
+        Central.
+      name: rox_central_endpoint
+      type: string
+    - default: rox-api-token
+      description: >-
+        Name of secret containing the RHACS StackRox API token with CI
+        permissions.
+      name: rox_api_token
+      type: string
+    - default: 'quay.io/stackrox-io/roxctl:3.71.0'
+      description: Image providing the roxctl tool.
+      name: rox_image
+      type: string
+    - default: $(params.IMAGE)
+      description: >
+        Full name of image to check.
+
+        Examples: 'gcr.io/rox/sample:5.0-rc1', '$(params.IMAGE)',
+        '$(params.IMAGE)@$(tasks.buildah.results.IMAGE_DIGEST)'
+      name: image
+      type: string
+    - default: table
+      description: Results output format (csv | json | junit | table)
+      name: output_format
+      type: string
+    - default: 'false'
+      description: >
+        Do not verify TLS certificates.
+
+
+        When set to "true", skip verifying the TLS certs of the Central endpoint
+        and registry.
+      name: insecure-skip-tls-verify
+      type: string
+  results:
+    - description: Output of `roxctl image check`
+      name: check_output
+      type: string
+  steps:
+    - args:
+        - image
+        - check
+        - '--endpoint=$(ROX_CENTRAL_ENDPOINT)'
+        - '--insecure-skip-tls-verify=$(INSECURE)'
+        - '--output=$(OUTPUT)'
+        - '--image=$(IMAGE)'
+      computeResources: {}
+      env:
+        - name: HOME
+          value: /tekton/home
+        - name: IMAGE
+          value: $(params.image)
+        - name: INSECURE
+          value: $(params.insecure-skip-tls-verify)
+        - name: OUTPUT
+          value: $(params.output_format)
+        - name: ROX_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: rox_api_token
+              name: $(params.rox_api_token)
+        - name: ROX_CENTRAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              key: rox_central_endpoint
+              name: $(params.rox_central_endpoint)
+      image: $(params.rox_image)
+      name: rox-image-check
+
+---
+
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: rhacs-image-scan
+  labels:
+    app.kubernetes.io/version: '3.71'
+spec:
+  description: >-
+    Scan an image with Red Hat Advanced Cluster Security.
+
+    This task allows you to return full vulnerability scan results for an image
+    in CSV, Table, or JSON formats. The companion rhacs-image-check task checks
+    an image against build-time policies.
+  params:
+    - default: rox-central-endpoint
+      description: >-
+        Name of secret containing the address:port tuple for RHACS Stackrox
+        Central.
+      name: rox_central_endpoint
+      type: string
+    - default: rox-api-token
+      description: >-
+        Name of secret containing the RHACS StackRox API token with CI
+        permissions.
+      name: rox_api_token
+      type: string
+    - default: 'quay.io/stackrox-io/roxctl:3.71.0'
+      description: Image providing the roxctl tool.
+      name: rox_image
+      type: string
+    - default: $(params.IMAGE)
+      description: >
+        Full name of image to scan.
+
+
+        SHA 256 digest may be included to ensure scan of sequental runs with
+        same tag.
+
+        Examples: 'gcr.io/rox/sample:5.0-rc1', '$(params.IMAGE)',
+        '$(params.IMAGE)@$(tasks.buildah.results.IMAGE_DIGEST)'
+      name: image
+      type: string
+    - default: json
+      description: Results output format (json | csv | table)
+      name: output_format
+      type: string
+    - default: 'false'
+      description: >
+        Do not verify TLS certificates.
+
+
+        When set to "true", skip verifying the TLS certs of the Central endpoint
+        and registry.
+      name: insecure-skip-tls-verify
+      type: string
+  steps:
+    - args:
+        - image
+        - scan
+        - '--endpoint=$(ROX_CENTRAL_ENDPOINT)'
+        - '--insecure-skip-tls-verify=$(INSECURE)'
+        - '--output=$(OUTPUT)'
+        - '--image=$(IMAGE)'
+      computeResources: {}
+      env:
+        - name: HOME
+          value: /tekton/home
+        - name: IMAGE
+          value: $(params.image)
+        - name: INSECURE
+          value: $(params.insecure-skip-tls-verify)
+        - name: OUTPUT
+          value: $(params.output_format)
+        - name: ROX_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: rox_api_token
+              name: $(params.rox_api_token)
+        - name: ROX_CENTRAL_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              key: rox_central_endpoint
+              name: $(params.rox_central_endpoint)
+      image: $(params.rox_image)
+      name: rox-image-scan
+

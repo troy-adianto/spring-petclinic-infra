@@ -1,0 +1,285 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: deploy-and-build-dev
+spec:
+  params:
+    - default: 'https://github.com/troy-adianto/quarkus-hello.git'
+      description: String
+      name: APP_GIT_URL
+      type: string
+    - default: master
+      name: APP_GIT_REVISION
+      type: string
+    - default: quarkus-hello
+      name: APP_NAME
+      type: string
+    - default: 'https://github.com/troy-adianto/quarkus-hello-infra.git'
+      name: INFRA_REPO
+      type: string
+    - default: main
+      name: INFRA_REVISION
+      type: string
+    - default: quay.io/tadianto/quarkus-hello
+      name: IMAGE_NAME
+      type: string
+    - name: APP_GIT_COMMIT_ID
+      type: string
+  tasks:
+    - name: git-clone
+      params:
+        - name: url
+          value: $(params.APP_GIT_URL)
+        - name: revision
+          value: $(params.APP_GIT_REVISION)
+        - name: refspec
+          value: ''
+        - name: submodules
+          value: 'true'
+        - name: depth
+          value: '1'
+        - name: sslVerify
+          value: 'true'
+        - name: crtFileName
+          value: ca-bundle.crt
+        - name: subdirectory
+          value: ''
+        - name: sparseCheckoutDirectories
+          value: ''
+        - name: deleteExisting
+          value: 'true'
+        - name: httpProxy
+          value: ''
+        - name: httpsProxy
+          value: ''
+        - name: noProxy
+          value: ''
+        - name: verbose
+          value: 'true'
+        - name: gitInitImage
+          value: >-
+            gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.40.2
+        - name: userHome
+          value: /home/git
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: source
+        - name: basic-auth
+          workspace: git-credentials
+    - name: s2i-java
+      params:
+        - name: VERSION
+          value: latest
+        - name: PATH_CONTEXT
+          value: .
+        - name: TLSVERIFY
+          value: 'true'
+        - name: MAVEN_ARGS_APPEND
+          value: ''
+        - name: MAVEN_CLEAR_REPO
+          value: 'false'
+        - name: MAVEN_MIRROR_URL
+          value: ''
+        - name: IMAGE
+          value: '$(params.IMAGE_NAME):$(tasks.shorten-image-tag-name.results.output)'
+        - name: BUILDER_IMAGE
+          value: >-
+            registry.redhat.io/rhel8/buildah@sha256:55f5c7d88c77e1ab5a2ab8e877172b2b66cb196e21f10dc45148470d0ee8bbae
+        - name: SKIP_PUSH
+          value: 'false'
+        - name: ENV_VARS
+          value: []
+      runAfter:
+        - shorten-image-tag-name
+      taskRef:
+        kind: ClusterTask
+        name: s2i-java
+      workspaces:
+        - name: source
+          workspace: source
+    - name: fetch-infra-manifest
+      params:
+        - name: url
+          value: $(params.INFRA_REPO)
+        - name: revision
+          value: $(params.INFRA_REVISION)
+        - name: refspec
+          value: ''
+        - name: submodules
+          value: 'true'
+        - name: depth
+          value: '1'
+        - name: sslVerify
+          value: 'true'
+        - name: crtFileName
+          value: ca-bundle.crt
+        - name: subdirectory
+          value: ''
+        - name: sparseCheckoutDirectories
+          value: ''
+        - name: deleteExisting
+          value: 'true'
+        - name: httpProxy
+          value: ''
+        - name: httpsProxy
+          value: ''
+        - name: noProxy
+          value: ''
+        - name: verbose
+          value: 'true'
+        - name: gitInitImage
+          value: >-
+            registry.redhat.io/openshift-pipelines/pipelines-git-init-rhel8@sha256:c4b2183f7c7997bd401d86b33eefb637b3ef2fa90618e875106292cd69a15c14
+        - name: userHome
+          value: /home/git
+      runAfter:
+        - rhacs-image-check
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: infra
+        - name: basic-auth
+          workspace: git-credentials
+    - name: push-manifest
+      params:
+        - name: BASE_IMAGE
+          value: >-
+            cgr.dev/chainguard/git:root-2.39@sha256:7759f87050dd8bacabe61354d75ccd7f864d6b6f8ec42697db7159eccd491139
+        - name: GIT_USER_NAME
+          value: troy-adianto
+        - name: GIT_USER_EMAIL
+          value: troy.adianto@gmail.com
+        - name: GIT_SCRIPT
+          value: |
+            git config --global --add safe.directory $(workspaces.source.path)
+            git checkout $(params.INFRA_REVISION)
+            git commit -a -m "new build"
+            git push
+        - name: USER_HOME
+          value: /root
+        - name: VERBOSE
+          value: 'true'
+      runAfter:
+        - rhacs-deployment-check
+      taskRef:
+        kind: ClusterTask
+        name: git-cli
+      workspaces:
+        - name: source
+          workspace: infra
+        - name: basic-auth
+          workspace: git-credentials
+    - name: deploy-manifest
+      params:
+        - name: SCRIPT
+          value: >-
+            oc apply -k $(workspaces.manifest-dir.path)/deploy/overlays/dev/ -n
+            quarkus-hello-dev
+        - name: VERSION
+          value: latest
+      runAfter:
+        - push-manifest
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+      workspaces:
+        - name: manifest-dir
+          workspace: infra
+    - name: update-manifest
+      params:
+        - name: SCRIPT
+          value: >-
+            sed -i
+            's/quarkus-hello:.*/quarkus-hello:$(params.APP_GIT_COMMIT_ID)/g'
+            $(workspaces.manifest-dir.path)/deploy/overlays/dev/deployment.yaml
+        - name: VERSION
+          value: latest
+      runAfter:
+        - fetch-infra-manifest
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+      workspaces:
+        - name: manifest-dir
+          workspace: infra
+    - name: shorten-image-tag-name
+      params:
+        - name: SCRIPT
+          value: >-
+            printf "$(params.APP_GIT_COMMIT_ID)"  | sed 's/.*\(.\{5\}\)$/\1/' >
+            "$(results.output.path)"
+      runAfter:
+        - git-clone
+      taskRef:
+        kind: ClusterTask
+        name: bash-script
+    - name: rhacs-image-check
+      params:
+        - name: rox_central_endpoint
+          value: acs-pipeline-secret
+        - name: rox_api_token
+          value: acs-pipeline-secret
+        - name: rox_image
+          value: 'quay.io/stackrox-io/roxctl:3.71.0'
+        - name: image
+          value: '$(params.IMAGE_NAME):$(tasks.shorten-image-tag-name.results.output)'
+        - name: output_format
+          value: table
+        - name: insecure-skip-tls-verify
+          value: 'true'
+      runAfter:
+        - s2i-java
+      taskRef:
+        kind: Task
+        name: rhacs-image-check
+    - name: rhacs-deployment-check
+      params:
+        - name: rox_central_endpoint
+          value: acs-pipeline-secret
+        - name: rox_api_token
+          value: acs-pipeline-secret
+        - name: rox_image
+          value: 'quay.io/stackrox-io/roxctl:3.71.0'
+        - name: deployment
+          value: $(workspaces.source.path)/deploy/deployment-dev.yaml
+        - name: output_format
+          value: table
+        - name: insecure-skip-tls-verify
+          value: 'true'
+      runAfter:
+        - generate-deployment-file
+      taskRef:
+        kind: Task
+        name: rhacs-deployment-check
+      workspaces:
+        - name: source
+          workspace: infra
+    - name: generate-deployment-file
+      params:
+        - name: SCRIPT
+          value: >-
+            oc apply -k $(workspaces.manifest-dir.path)/deploy/overlays/dev/
+            --dry-run=client -o yaml >
+            $(workspaces.manifest-dir.path)/deploy/deployment-dev.yaml
+
+
+            cat $(workspaces.manifest-dir.path)/deploy/deployment-dev.yaml
+        - name: VERSION
+          value: latest
+      runAfter:
+        - update-manifest
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+      workspaces:
+        - name: manifest-dir
+          workspace: infra
+  workspaces:
+    - name: source
+    - name: infra
+    - name: git-credentials
