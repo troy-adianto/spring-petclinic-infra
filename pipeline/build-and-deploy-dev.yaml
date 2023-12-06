@@ -214,9 +214,9 @@ spec:
             printf "$(params.APP_GIT_COMMIT_ID)"  | sed 's/.*\(.\{5\}\)$/\1/' >
             "$(results.output.path)"
       runAfter:
-        - git-clone
+        - git-clones
       taskRef:
-        kind: ClusterTask
+        kind: Task
         name: bash-script
     - name: rhacs-image-check
       params:

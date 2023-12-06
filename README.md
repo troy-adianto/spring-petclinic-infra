@@ -13,19 +13,25 @@ TODO:
 
 
 DEPLOYMENT STEPS
+- create namespace
+   - quarkus-hello-ci
+   - quarkus-hello-dev
+   - quarkus-hello-uat
+   - quarkus-hello-prod
 - Install Openshift Pipeline Operator
 - Install Advance Cluster Security Operator
 - Create robot account to registry (eg. quay.io)
 - configure ACS 
     - Create token
     - Configure registry integration
+    - disable enforcement on fixable at least important policy
 - Create Secrets
     - Github Secret
     - Quay Registry Secret
-    - ACS secret
+    - ACS secret (add port to acs endpoint)
     - Webhook secret (optional)
 - Provide pipeline sa privilege to
-    - Internal/external registry (if applicable)
+    - Internal/external registry (update service account pull secret)
     - destination pipeline privileges
 - Create the following resources
     - pvc.yaml
@@ -35,3 +41,4 @@ DEPLOYMENT STEPS
     - promote-to-uat.yaml
     - trigger/*.yaml
     - role-binding.yaml
+- configure github webhook

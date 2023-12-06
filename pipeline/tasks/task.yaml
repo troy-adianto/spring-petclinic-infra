@@ -17,7 +17,7 @@ spec:
     - env:
         - name: HOME
           value: /tekton/home
-      image: 'image-registry.openshift-image-registry.svc:5000/openshift/cli:latest'
+      image: 'registry.redhat.io/devspaces/udi-rhel8'
       name: bash
       resources: {}
       script: |

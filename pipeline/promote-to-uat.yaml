@@ -135,7 +135,7 @@ spec:
             printf "$(params.APP_GIT_COMMIT_ID)"  | sed 's/.*\(.\{5\}\)$/\1/' >
             "$(results.output.path)"
       taskRef:
-        kind: ClusterTask
+        kind: Task
         name: bash-script
     - name: rhacs-deployment-check
       params:
@@ -203,7 +203,7 @@ spec:
       runAfter:
         - shorten-image-tag-name
       taskRef:
-        kind: ClusterTask
+        kind: Task
         name: bash-script
   workspaces:
     - name: source
