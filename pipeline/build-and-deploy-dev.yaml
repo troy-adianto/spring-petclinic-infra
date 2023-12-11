@@ -214,7 +214,7 @@ spec:
             printf "$(params.APP_GIT_COMMIT_ID)"  | sed 's/.*\(.\{5\}\)$/\1/' >
             "$(results.output.path)"
       runAfter:
-        - git-clones
+        - git-clone
       taskRef:
         kind: Task
         name: bash-script
