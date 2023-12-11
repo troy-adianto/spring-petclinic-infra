@@ -179,7 +179,7 @@ spec:
         - name: SCRIPT
           value: >-
             oc apply -k $(workspaces.manifest-dir.path)/deploy/overlays/dev/ -n
-            quarkus-hello-dev
+            $(params.APP_NAME)-dev
         - name: VERSION
           value: latest
       runAfter:
