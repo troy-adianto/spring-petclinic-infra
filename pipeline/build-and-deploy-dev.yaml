@@ -195,7 +195,7 @@ spec:
         - name: SCRIPT
           value: >-
             sed -i
-            's/quarkus-hello:.*/quarkus-hello:$(params.APP_GIT_COMMIT_ID)/g'
+            's/$(params.APP_NAME):.*/$(params.APP_NAME):$(params.APP_GIT_COMMIT_ID)/g'
             $(workspaces.manifest-dir.path)/deploy/overlays/dev/deployment.yaml
         - name: VERSION
           value: latest
