@@ -7,4 +7,4 @@ spec:
     spec:
       containers:
         - name: spring-petclinic
-          image: quay.io/tadianto/spring-petclinic:latest
+          image: quay.io/tadianto/spring-petclinic:bb21311080ba6da9a96b59ec83abeb9517333c5a
