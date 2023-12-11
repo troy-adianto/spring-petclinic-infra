@@ -1,10 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: quarkus-hello
+  name: spring-petclinic
 spec:
   template:
     spec:
       containers:
-        - name: quarkus-hello
-          image: quay.io/tadianto/quarkus-hello:v2.0
+        - name: spring-petclinic
+          image: quay.io/tadianto/spring-petclinic:v2.0

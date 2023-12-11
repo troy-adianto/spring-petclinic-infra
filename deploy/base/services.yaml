@@ -1,9 +1,9 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: quarkus-hello
+  name: spring-petclinic
   labels:
-    app: quarkus-hello
+    app: spring-petclinic
 spec:
   ports:
     - name: 8080-tcp
@@ -12,4 +12,4 @@ spec:
       targetPort: 8080
   type: ClusterIP
   selector:
-    app: quarkus-hello
+    app: spring-petclinic
